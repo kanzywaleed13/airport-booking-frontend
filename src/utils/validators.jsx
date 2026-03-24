@@ -16,7 +16,7 @@ export function validateEmail(value) {
     return { valid: false, message: "Email address is required." };
   }
   // Whitelist: standard email format, max 254 chars (RFC 5321)
-  const pattern = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+  const pattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   if (!pattern.test(value.trim())) {
     return { valid: false, message: "Please enter a valid email address." };
   }
@@ -58,7 +58,7 @@ export function validateFullName(value) {
     return { valid: false, message: "Full name is required." };
   }
   // Whitelist: letters, spaces, hyphens, apostrophes only
-  const pattern = /^[a-zA-Z\s'\-]{2,80}$/;
+  const pattern = /^[a-zA-Z\s'-]{2,80}$/;
   if (!pattern.test(value.trim())) {
     return {
       valid: false,
@@ -115,6 +115,26 @@ export function validateAirportCode(value, fieldName = "Airport code") {
   return { valid: true, message: "" };
 }
 
+/**
+ * Validates a flight search field that accepts either a 3-letter IATA airport
+ * code (e.g. CAI, LHR) or a city name of 2–30 letters/spaces/hyphens.
+ */
+export function validateCityOrAirportCode(value, fieldName = "Airport or city") {
+  if (!value || value.trim() === "") {
+    return { valid: false, message: `${fieldName} is required.` };
+  }
+  const trimmed = value.trim();
+  // Whitelist: letters, spaces, and hyphens only; 2–30 characters
+  const pattern = /^[a-zA-Z\s-]{2,30}$/;
+  if (!pattern.test(trimmed)) {
+    return {
+      valid: false,
+      message: `${fieldName} must be 2–30 letters (e.g. CAI or Cairo).`,
+    };
+  }
+  return { valid: true, message: "" };
+}
+
 export function validateTravelDate(value) {
   if (!value || value.trim() === "") {
     return { valid: false, message: "Travel date is required." };
@@ -159,7 +179,7 @@ export function validateBookingReference(value) {
     return { valid: false, message: "Booking reference is required." };
   }
   // Whitelist: alphanumeric only, 6–36 chars (covers short refs and UUIDs)
-  const pattern = /^[a-zA-Z0-9\-]{6,36}$/;
+  const pattern = /^[a-zA-Z0-9-]{6,36}$/;
   if (!pattern.test(value.trim())) {
     return {
       valid: false,

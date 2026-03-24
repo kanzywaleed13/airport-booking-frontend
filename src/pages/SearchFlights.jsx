@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import {
-  validateAirportCode,
+  validateCityOrAirportCode,
   validateTravelDate,
   validatePassengerCount,
   runValidators,
@@ -331,9 +331,9 @@ export default function SearchFlights() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     let sanitized = value;
-    // Force airport codes to uppercase, letters only
+    // Allow letters, spaces, hyphens for city names or airport codes; cap at 30 chars
     if (name === "from" || name === "to") {
-      sanitized = value.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 3);
+      sanitized = value.replace(/[^a-zA-Z\s-]/g, "").replace(/\s+/g, " ").slice(0, 30);
     }
     // Cap passenger input
     if (name === "passengers") {
@@ -351,8 +351,8 @@ export default function SearchFlights() {
 
   const validate = () =>
     runValidators({
-      from: [form.from, (v) => validateAirportCode(v, "Departure airport")],
-      to: [form.to, (v) => validateAirportCode(v, "Destination airport")],
+      from: [form.from, (v) => validateCityOrAirportCode(v, "Departure")],
+      to: [form.to, (v) => validateCityOrAirportCode(v, "Destination")],
       date: [form.date, validateTravelDate],
       passengers: [form.passengers, validatePassengerCount],
     });
@@ -468,8 +468,8 @@ export default function SearchFlights() {
                   onFocus={() => setFocused("from")}
                   onBlur={() => setFocused(null)}
                   style={getInputStyle("from")}
-                  placeholder="CAI"
-                  maxLength={3}
+                  placeholder="CAI or Cairo"
+                  maxLength={30}
                   autoComplete="off"
                 />
                 {errors.from && <p style={s.errorMsg}>{errors.from}</p>}
@@ -494,8 +494,8 @@ export default function SearchFlights() {
                   onFocus={() => setFocused("to")}
                   onBlur={() => setFocused(null)}
                   style={getInputStyle("to")}
-                  placeholder="LHR"
-                  maxLength={3}
+                  placeholder="LHR or London"
+                  maxLength={30}
                   autoComplete="off"
                 />
                 {errors.to && <p style={s.errorMsg}>{errors.to}</p>}
