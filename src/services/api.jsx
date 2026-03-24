@@ -37,8 +37,15 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
+    const requestUrl = error.config?.url || "";
 
-    if (status === 401) {
+    // Auth endpoints handle their own errors — do not intercept them
+    const AUTH_ENDPOINTS = ["/auth/login", "/auth/register", "/auth/mfa/verify", "/auth/mfa/resend"];
+    const isAuthEndpoint = AUTH_ENDPOINTS.some(
+      (endpoint) => requestUrl === endpoint || requestUrl.endsWith(endpoint)
+    );
+
+    if (status === 401 && !isAuthEndpoint) {
       // Session expired or invalid token — clear session and redirect to login
       clearSession();
       window.location.href = "/login";
