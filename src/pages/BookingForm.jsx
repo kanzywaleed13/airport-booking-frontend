@@ -2,11 +2,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import {
-  validateFullName,
   validateEmail,
   validatePhone,
   validatePassportNumber,
-  runValidators,
 } from "../utils/validators";
 
 // ─── Styles ────────────────────────────────────────────────────────────────
@@ -152,7 +150,7 @@ export default function BookingForm() {
     // Sanitize per field type
     let sanitized = value;
     if (field === "firstName" || field === "lastName") {
-      sanitized = value.replace(/[^a-zA-Z\s'\-]/g, "").slice(0, 50);
+      sanitized = value.replace(/[^a-zA-Z\s'-]/g, "").slice(0, 50);
     }
     if (field === "passport") {
       sanitized = value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 20);
@@ -175,11 +173,10 @@ export default function BookingForm() {
   const validate = () => {
     const errs = {};
     passengers.forEach((p, i) => {
-      const nameResult = validateFullName(`${p.firstName} ${p.lastName}`.trim());
       if (!p.firstName.trim()) errs[`${i}_firstName`] = "First name is required.";
-      else if (!/^[a-zA-Z\s'\-]{2,}$/.test(p.firstName.trim())) errs[`${i}_firstName`] = "Letters only.";
+      else if (!/^[a-zA-Z\s'-]{2,}$/.test(p.firstName.trim())) errs[`${i}_firstName`] = "Letters only.";
       if (!p.lastName.trim()) errs[`${i}_lastName`] = "Last name is required.";
-      else if (!/^[a-zA-Z\s'\-]{2,}$/.test(p.lastName.trim())) errs[`${i}_lastName`] = "Letters only.";
+      else if (!/^[a-zA-Z\s'-]{2,}$/.test(p.lastName.trim())) errs[`${i}_lastName`] = "Letters only.";
       const emailR = validateEmail(p.email);
       if (!emailR.valid) errs[`${i}_email`] = emailR.message;
       const phoneR = validatePhone(p.phone);
