@@ -39,18 +39,10 @@ api.interceptors.response.use(
     const status = error.response?.status;
 
     if (status === 401) {
-      // Auth endpoints (login, register, mfa/verify) legitimately return 401
-      // for wrong credentials — let those pages handle the error themselves.
-      const url = error.config?.url || "";
-      const isAuthEndpoint = url.startsWith("/auth/");
-      if (!isAuthEndpoint) {
-        // Session expired or invalid token on a protected endpoint — clear and redirect
-        clearSession();
-        window.location.href = "/login";
-        return Promise.reject(new Error("Session expired. Please log in again."));
-      }
-      // Pass through auth-endpoint 401s so Login/Register/MFAVerify can handle them
-      return Promise.reject(error);
+      // Session expired or invalid token — clear session and redirect to login
+      clearSession();
+      window.location.href = "/login";
+      return Promise.reject(new Error("Session expired. Please log in again."));
     }
 
     if (status === 403) {
