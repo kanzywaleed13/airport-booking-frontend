@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import {
+  validateFullName,
   validateEmail,
   validatePhone,
   validatePassword,
@@ -129,7 +130,7 @@ export default function Register() {
     const { name, value } = e.target;
     let sanitized = value;
     if (name === "firstName" || name === "lastName") {
-      sanitized = value.replace(/[^a-zA-Z\s'-]/g, "").slice(0, 50);
+      sanitized = value.replace(/[^a-zA-Z\s'\-]/g, "").slice(0, 50);
     }
     if (name === "phone") {
       sanitized = value.replace(/[^0-9+]/g, "").slice(0, 15);
@@ -144,9 +145,9 @@ export default function Register() {
   const validate = () => {
     const errs = {};
     if (!form.firstName.trim()) errs.firstName = "First name is required.";
-    else if (!/^[a-zA-Z\s'-]{2,}$/.test(form.firstName.trim())) errs.firstName = "Letters only.";
+    else if (!/^[a-zA-Z\s'\-]{2,}$/.test(form.firstName.trim())) errs.firstName = "Letters only.";
     if (!form.lastName.trim()) errs.lastName = "Last name is required.";
-    else if (!/^[a-zA-Z\s'-]{2,}$/.test(form.lastName.trim())) errs.lastName = "Letters only.";
+    else if (!/^[a-zA-Z\s'\-]{2,}$/.test(form.lastName.trim())) errs.lastName = "Letters only.";
     const emailR = validateEmail(form.email);
     if (!emailR.valid) errs.email = emailR.message;
     const phoneR = validatePhone(form.phone);
