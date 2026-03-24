@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../services/api";
+import {
+  signInWithEmailAndPassword,
+  getMultiFactorResolver,
+  PhoneAuthProvider,
+  RecaptchaVerifier,
+} from "firebase/auth";
+import { auth } from "../firebase";
 import { validateEmail, validatePassword } from "../utils/validators";
 
 const styles = {
@@ -251,6 +257,8 @@ const styles = {
   },
 };
 
+let recaptchaVerifierInstance = null;
+
 export default function Login() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "" });
@@ -263,15 +271,25 @@ export default function Login() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    // Trim whitespace, cap length to prevent overflow attacks
-    const sanitized = value.trimStart().slice(0, 254);
+    const sanitized =
+      name === "password"
+        ? value.slice(0, 128)
+        : value.trimStart().slice(0, 254);
+
     setForm((prev) => ({ ...prev, [name]: sanitized }));
-    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
-    if (serverError) setServerError("");
+
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: "" }));
+    }
+
+    if (serverError) {
+      setServerError("");
+    }
   };
 
   const validate = () => {
     const newErrors = {};
+
     const emailResult = validateEmail(form.email);
     if (!emailResult.valid) newErrors.email = emailResult.message;
 
@@ -281,8 +299,23 @@ export default function Login() {
     return newErrors;
   };
 
+  const setupRecaptcha = () => {
+    if (!recaptchaVerifierInstance) {
+      recaptchaVerifierInstance = new RecaptchaVerifier(
+        auth,
+        "recaptcha-container",
+        {
+          size: "invisible",
+        }
+      );
+    }
+
+    return recaptchaVerifierInstance;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     const validationErrors = validate();
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
@@ -293,29 +326,46 @@ export default function Login() {
     setServerError("");
 
     try {
-      const response = await api.post("/auth/login", {
-        email: form.email,
-        password: form.password,
-      });
-
-      if (response.data.success) {
-        // Store only in sessionStorage — never localStorage
-        // Backend should use HttpOnly cookie for token ideally
-        sessionStorage.setItem("mfa_pending", "true");
-        sessionStorage.setItem("user_email", form.email);
-        navigate("/mfa-verify");
-      }
+      await signInWithEmailAndPassword(auth, form.email.trim(), form.password);
+      navigate("/my-bookings");
     } catch (err) {
-      // Never expose raw error details to the user
-      const status = err.response?.status;
-      if (status === 401) {
+      if (err.code === "auth/multi-factor-auth-required") {
+        try {
+          const resolver = getMultiFactorResolver(auth, err);
+          const recaptchaVerifier = setupRecaptcha();
+
+          const phoneInfoOptions = {
+            multiFactorHint: resolver.hints[0],
+            session: resolver.session,
+          };
+
+          const phoneAuthProvider = new PhoneAuthProvider(auth);
+
+          const verificationId = await phoneAuthProvider.verifyPhoneNumber(
+            phoneInfoOptions,
+            recaptchaVerifier
+          );
+
+          window.mfaResolver = resolver;
+          sessionStorage.setItem("verificationId", verificationId);
+          sessionStorage.setItem("mfaRememberMe", rememberMe ? "true" : "false");
+
+          navigate("/mfa-verify");
+        } catch (mfaErr) {
+          setServerError(mfaErr.message || "Failed to start multi-factor verification.");
+        }
+      } else if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/user-not-found" ||
+        err.code === "auth/wrong-password"
+      ) {
         setServerError("Invalid email or password. Please try again.");
-      } else if (status === 429) {
+      } else if (err.code === "auth/too-many-requests") {
         setServerError("Too many attempts. Please wait before trying again.");
-      } else if (status === 423) {
-        setServerError("Account temporarily locked. Please contact support.");
+      } else if (err.code === "auth/invalid-email") {
+        setServerError("Please enter a valid email address.");
       } else {
-        setServerError("Something went wrong. Please try again later.");
+        setServerError(err.message || "Something went wrong. Please try again later.");
       }
     } finally {
       setLoading(false);
@@ -330,34 +380,43 @@ export default function Login() {
 
   return (
     <div style={styles.page}>
-      {/* Left branding panel */}
       <div style={styles.left}>
         <div style={styles.logoRow}>
           <div style={styles.logoIcon}>
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M10 2L18 7V13L10 18L2 13V7L10 2Z" stroke="#0a0f1e" strokeWidth="1.5" fill="none"/>
-              <path d="M6 10H14M10 6V14" stroke="#0a0f1e" strokeWidth="1.5" strokeLinecap="round"/>
+              <path
+                d="M10 2L18 7V13L10 18L2 13V7L10 2Z"
+                stroke="#0a0f1e"
+                strokeWidth="1.5"
+                fill="none"
+              />
+              <path
+                d="M6 10H14M10 6V14"
+                stroke="#0a0f1e"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
             </svg>
           </div>
           <span style={styles.logoText}>AeroSecure</span>
         </div>
 
         <h1 style={styles.tagline}>
-          Your journey,<br />
-          <span style={styles.taglineAccent}>secured</span> at every<br />
+          Your journey,
+          <br />
+          <span style={styles.taglineAccent}>secured</span> at every
+          <br />
           altitude.
         </h1>
 
         <p style={styles.subtext}>
-          Military-grade security for modern air travel.
-          Your passport, payments, and personal data
-          protected end-to-end.
+          Military-grade security for modern air travel. Your passport,
+          payments, and personal data protected end-to-end.
         </p>
 
         <div style={styles.divider} />
       </div>
 
-      {/* Right form panel */}
       <div style={styles.right}>
         <p style={styles.formTitle}>Welcome back</p>
         <p style={styles.formSub}>Sign in to access your bookings</p>
@@ -369,9 +428,10 @@ export default function Login() {
         )}
 
         <form onSubmit={handleSubmit} noValidate autoComplete="off">
-          {/* Email field */}
           <div style={styles.fieldGroup}>
-            <label style={styles.label} htmlFor="email">Email address</label>
+            <label style={styles.label} htmlFor="email">
+              Email address
+            </label>
             <input
               id="email"
               name="email"
@@ -387,13 +447,16 @@ export default function Login() {
               required
             />
             {errors.email && (
-              <p style={styles.errorMsg} role="alert">{errors.email}</p>
+              <p style={styles.errorMsg} role="alert">
+                {errors.email}
+              </p>
             )}
           </div>
 
-          {/* Password field */}
           <div style={styles.fieldGroup}>
-            <label style={styles.label} htmlFor="password">Password</label>
+            <label style={styles.label} htmlFor="password">
+              Password
+            </label>
             <div style={styles.passwordWrapper}>
               <input
                 id="password"
@@ -419,11 +482,12 @@ export default function Login() {
               </button>
             </div>
             {errors.password && (
-              <p style={styles.errorMsg} role="alert">{errors.password}</p>
+              <p style={styles.errorMsg} role="alert">
+                {errors.password}
+              </p>
             )}
           </div>
 
-          {/* Remember me + Forgot password */}
           <div style={styles.rememberRow}>
             <label style={styles.checkLabel}>
               <input
@@ -439,7 +503,6 @@ export default function Login() {
             </button>
           </div>
 
-          {/* Submit */}
           <button
             type="submit"
             style={{
@@ -451,14 +514,14 @@ export default function Login() {
             {loading ? "Verifying..." : "Continue to verification"}
           </button>
 
-          {/* Divider */}
+          <div id="recaptcha-container"></div>
+
           <div style={styles.dividerRow}>
             <div style={styles.dividerLine} />
             <span style={styles.dividerLabel}>secured by</span>
             <div style={styles.dividerLine} />
           </div>
 
-          {/* Security badge */}
           <div style={styles.securityNote}>
             <div style={styles.securityDot} />
             <span>256-bit TLS encryption · MFA required · CSRF protected</span>

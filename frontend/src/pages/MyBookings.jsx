@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../services/api";
+import { auth, db } from "../firebase";
+import { signOut } from "firebase/auth";
+import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
 
 const s = {
   page: { minHeight: "100vh", background: "#0a0f1e", fontFamily: "sans-serif" },
@@ -65,23 +67,22 @@ export default function MyBookings() {
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelling, setCancelling] = useState(false);
 
-  useEffect(() => {
-    fetchBookings();
-  }, []);
+  useEffect(() => { fetchBookings(); }, []);
 
   const fetchBookings = async () => {
     setLoading(true);
     setError("");
     try {
-      // Backend returns ONLY the current user's bookings (enforced server-side)
-      // Frontend never sends a userId — the backend reads it from the JWT token
-      const response = await api.get("/bookings");
-      setBookings(response.data.data || []);
+      const q = query(
+        collection(db, "bookings"),
+        where("userId", "==", auth.currentUser.uid)
+      );
+      const querySnapshot = await getDocs(q);
+      const data = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setBookings(data);
     } catch (err) {
-      // Use mock data if backend not ready
-      setBookings(MOCK_BOOKINGS);
-      // Uncomment when backend is ready:
-      // setError("Could not load bookings. Please try again.");
+      console.error("Fetch bookings error:", err);
+      setError("Could not load bookings. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -91,30 +92,29 @@ export default function MyBookings() {
     if (!cancelTarget) return;
     setCancelling(true);
     try {
-      // IDOR protection: backend verifies this booking belongs to the current user
-      // Never pass userId from frontend — backend reads it from JWT
-      await api.patch(`/bookings/${cancelTarget}/cancel`);
+      const bookingRef = doc(db, "bookings", cancelTarget);
+      await updateDoc(bookingRef, { status: "cancelled" });
       setBookings((prev) =>
-        prev.map((b) =>
-          b.id === cancelTarget ? { ...b, status: "cancelled" } : b
-        )
+        prev.map((b) => b.id === cancelTarget ? { ...b, status: "cancelled" } : b)
       );
     } catch (err) {
-      const status = err.response?.status;
-      if (status === 403) {
-        setError("You are not authorized to cancel this booking.");
-      } else if (status === 404) {
-        setError("Booking not found.");
-      } else {
-        setError("Could not cancel booking. Please try again.");
-      }
+      setError("Could not cancel booking. Please try again.");
     } finally {
       setCancelling(false);
       setCancelTarget(null);
     }
   };
 
-  const handleLogout = () => { sessionStorage.clear(); navigate("/login"); };
+  // Fixed: uses Firebase signOut instead of just clearing sessionStorage
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      sessionStorage.clear();
+      navigate("/login");
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  };
 
   return (
     <div style={s.page}>
@@ -140,7 +140,6 @@ export default function MyBookings() {
         <h1 style={s.heroTitle}>Your travel history</h1>
 
         {error && <div style={s.alertBox} role="alert">{error}</div>}
-
         {loading && [1, 2, 3].map((i) => <div key={i} style={s.skeletonCard} />)}
 
         {!loading && bookings.length === 0 && (
@@ -166,7 +165,6 @@ export default function MyBookings() {
                 </div>
                 <span style={s.statusBadge(booking.status)}>{booking.status}</span>
               </div>
-
               <div style={s.routeRow}>
                 <span style={s.routeCode}>{booking.from}</span>
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -174,7 +172,6 @@ export default function MyBookings() {
                 </svg>
                 <span style={s.routeCode}>{booking.to}</span>
               </div>
-
               <div style={s.routeMeta}>
                 <span>Date </span><span style={s.routeMetaVal}>{booking.date}</span>
                 {"  ·  "}
@@ -184,24 +181,19 @@ export default function MyBookings() {
                 {"  ·  "}
                 <span>Airline </span><span style={s.routeMetaVal}>{booking.airline}</span>
               </div>
-
               <div style={s.cardBottom}>
                 <div>
                   <div style={s.totalLabel}>Total paid</div>
                   <div style={s.totalVal}>${booking.total}</div>
                 </div>
                 {booking.status === "confirmed" && (
-                  <button
-                    style={s.cancelBtn}
-                    onClick={() => setCancelTarget(booking.id)}
-                  >
+                  <button style={s.cancelBtn} onClick={() => setCancelTarget(booking.id)}>
                     Cancel booking
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Cancel confirmation dialog */}
             {cancelTarget === booking.id && (
               <div style={s.confirmOverlay}>
                 <div style={s.confirmBox}>
@@ -227,10 +219,3 @@ export default function MyBookings() {
     </div>
   );
 }
-
-// Mock data — remove when backend is ready
-const MOCK_BOOKINGS = [
-  { id: "bk-001", reference: "AE-X7K2M9", from: "CAI", to: "LHR", date: "2026-04-15", dep: "08:00", passengers: 1, airline: "EgyptAir", total: 470, status: "confirmed" },
-  { id: "bk-002", reference: "AE-P4N8Q1", from: "LHR", to: "DXB", date: "2026-05-03", dep: "14:20", passengers: 2, airline: "British Airways", total: 890, status: "confirmed" },
-  { id: "bk-003", reference: "AE-R2W5T6", from: "CAI", to: "CDG", date: "2026-03-10", dep: "10:15", passengers: 1, airline: "Lufthansa", total: 340, status: "cancelled" },
-];
