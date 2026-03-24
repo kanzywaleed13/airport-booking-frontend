@@ -104,12 +104,12 @@ export function validateAirportCode(value, fieldName = "Airport code") {
   if (!value || value.trim() === "") {
     return { valid: false, message: `${fieldName} is required.` };
   }
-  // Whitelist: exactly 3 uppercase letters (IATA code)
-  const pattern = /^[A-Z]{3}$/;
-  if (!pattern.test(value.trim().toUpperCase())) {
+  // Accept a 3-letter IATA code (e.g. CAI) or a city name (2+ letters, may include spaces)
+  const pattern = /^[A-Za-z][A-Za-z ]{1,28}[A-Za-z]$|^[A-Za-z]{2,3}$/;
+  if (!pattern.test(value.trim())) {
     return {
       valid: false,
-      message: `${fieldName} must be a 3-letter IATA code (e.g. CAI, LHR).`,
+      message: `${fieldName} must be an airport code (e.g. CAI) or city name (e.g. Cairo).`,
     };
   }
   return { valid: true, message: "" };

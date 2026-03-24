@@ -331,9 +331,9 @@ export default function SearchFlights() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     let sanitized = value;
-    // Force airport codes to uppercase, letters only
+    // Allow airport codes (e.g. CAI) or city names (e.g. Cairo); strip invalid characters and limit to 30 chars
     if (name === "from" || name === "to") {
-      sanitized = value.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 3);
+      sanitized = value.replace(/[^a-zA-Z ]/g, "").slice(0, 30);
     }
     // Cap passenger input
     if (name === "passengers") {
@@ -468,8 +468,8 @@ export default function SearchFlights() {
                   onFocus={() => setFocused("from")}
                   onBlur={() => setFocused(null)}
                   style={getInputStyle("from")}
-                  placeholder="CAI"
-                  maxLength={3}
+                  placeholder="CAI or Cairo"
+                  maxLength={30}
                   autoComplete="off"
                 />
                 {errors.from && <p style={s.errorMsg}>{errors.from}</p>}
@@ -494,8 +494,8 @@ export default function SearchFlights() {
                   onFocus={() => setFocused("to")}
                   onBlur={() => setFocused(null)}
                   style={getInputStyle("to")}
-                  placeholder="LHR"
-                  maxLength={3}
+                  placeholder="LHR or London"
+                  maxLength={30}
                   autoComplete="off"
                 />
                 {errors.to && <p style={s.errorMsg}>{errors.to}</p>}
