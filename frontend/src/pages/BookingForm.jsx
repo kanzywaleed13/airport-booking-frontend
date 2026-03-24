@@ -67,6 +67,48 @@ const s = {
 
 const TITLES = ["Mr", "Mrs", "Ms", "Dr", "Prof"];
 
+// ─── Security utilities ────────────────────────────────────────────────────
+
+/**
+ * Hashes a value with SHA-256 using the browser's native Web Crypto API.
+ * The result is a lowercase hex string.
+ * Used for passport numbers and phone numbers before Firestore storage
+ * so plaintext PII is never written to the database.
+ */
+async function hashSHA256(value) {
+  const encoded = new TextEncoder().encode(value.toUpperCase().trim());
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Returns a partially masked representation of a phone number.
+ * e.g. "+201234567890" → "+20•••••7890"
+ * Stored alongside the hash so staff can identify numbers without
+ * exposing the full value.
+ */
+function maskPhone(phone) {
+  const clean = phone.trim();
+  if (clean.length <= 4) return "••••";
+  const last4 = clean.slice(-4);
+  const prefix = clean.startsWith("+") ? clean.slice(0, 3) : clean.slice(0, 2);
+  return `${prefix}${"•".repeat(Math.max(0, clean.length - prefix.length - 4))}${last4}`;
+}
+
+/**
+ * Returns a partially masked passport number.
+ * e.g. "A12345678" → "A1••••678"
+ */
+function maskPassport(passport) {
+  const clean = passport.toUpperCase().trim();
+  if (clean.length <= 4) return "••••";
+  return `${clean.slice(0, 2)}${"•".repeat(Math.max(0, clean.length - 5))}${clean.slice(-3)}`;
+}
+
+// ─── Component ─────────────────────────────────────────────────────────────
+
 export default function BookingForm() {
   const navigate = useNavigate();
   const [flight, setFlight] = useState(null);
@@ -125,7 +167,6 @@ export default function BookingForm() {
     return errs;
   };
 
-  // ✅ FIX: grandTotal calculated here so handleSubmit can access it
   const totalPrice = flight ? flight.price * parseInt(flight.passengers, 10) : 0;
   const taxes = Math.round(totalPrice * 0.12);
   const grandTotal = totalPrice + taxes;
@@ -136,10 +177,38 @@ export default function BookingForm() {
       setErrors(validationErrors);
       return;
     }
+
     setLoading(true);
     setServerError("");
+
     try {
-      const randomRef = "AE-" + Math.random().toString(36).toUpperCase().substring(2, 8);
+      // Hash and mask all sensitive passenger fields before storage
+      const sanitisedPassengers = await Promise.all(
+        passengers.map(async (p) => {
+          const [passportHash, phoneHash] = await Promise.all([
+            hashSHA256(p.passport),
+            hashSHA256(p.phone),
+          ]);
+
+          return {
+            title: p.title,
+            firstName: p.firstName.trim(),
+            lastName: p.lastName.trim(),
+            // Email is needed for contact — store it but NOT the passport/phone
+            email: p.email.trim(),
+            // Store hash for verification + masked version for display
+            passportHash,
+            passportMasked: maskPassport(p.passport),
+            phoneHash,
+            phoneMasked: maskPhone(p.phone),
+            // Plain passport and phone are NEVER written to Firestore
+          };
+        })
+      );
+
+      const randomRef =
+        "AE-" + Math.random().toString(36).toUpperCase().substring(2, 8);
+
       const newBooking = {
         userId: auth.currentUser.uid,
         flightId: flight.id,
@@ -153,15 +222,9 @@ export default function BookingForm() {
         total: grandTotal,
         status: "confirmed",
         createdAt: new Date().toISOString(),
-        passengerDetails: passengers.map((p) => ({
-          title: p.title,
-          firstName: p.firstName.trim(),
-          lastName: p.lastName.trim(),
-          email: p.email.trim(),
-          phone: p.phone.trim(),
-          passport: p.passport.trim(),
-        })),
+        passengerDetails: sanitisedPassengers,
       };
+
       await addDoc(collection(db, "bookings"), newBooking);
       setBookingRef(randomRef);
       sessionStorage.removeItem("selected_flight");
@@ -185,6 +248,8 @@ export default function BookingForm() {
     navigate("/login");
   };
 
+  // ─── Success screen ────────────────────────────────────────────────────
+
   if (bookingRef) {
     return (
       <div style={s.successOverlay}>
@@ -203,6 +268,8 @@ export default function BookingForm() {
   }
 
   if (!flight) return null;
+
+  // ─── Form ──────────────────────────────────────────────────────────────
 
   return (
     <div style={s.page}>
@@ -284,13 +351,19 @@ export default function BookingForm() {
                     <label style={s.label}>Passport number</label>
                     <input value={p.passport} onChange={(e) => updatePassenger(i, "passport", e.target.value)} onFocus={() => setFocused(`${i}_passport`)} onBlur={() => setFocused(null)} style={getInputStyle(`${i}_passport`)} placeholder="e.g. A12345678" maxLength={20} autoComplete="off" />
                     {errors[`${i}_passport`] && <p style={s.errorMsg}>{errors[`${i}_passport`]}</p>}
-                    <p style={{ fontSize: "11px", color: "#3a4055", marginTop: "4px" }}>Encrypted end-to-end. Never stored in plain text.</p>
+                    <p style={{ fontSize: "11px", color: "#3a4055", marginTop: "4px" }}>
+                      Hashed with SHA-256 before storage. Never written as plain text.
+                    </p>
                   </div>
                 </div>
               </div>
             ))}
 
-            <button style={{ ...s.submitBtn, ...(loading ? s.submitDisabled : {}) }} onClick={handleSubmit} disabled={loading}>
+            <button
+              style={{ ...s.submitBtn, ...(loading ? s.submitDisabled : {}) }}
+              onClick={handleSubmit}
+              disabled={loading}
+            >
               {loading ? "Confirming booking..." : `Confirm booking · $${grandTotal}`}
             </button>
           </div>
@@ -319,7 +392,7 @@ export default function BookingForm() {
             </div>
             <div style={s.securityNote}>
               <div style={s.secDot} />
-              <span>Passport data encrypted · TLS 1.3 · CSRF protected</span>
+              <span>Passport &amp; phone SHA-256 hashed · TLS 1.3 · CSRF protected</span>
             </div>
           </div>
         </div>

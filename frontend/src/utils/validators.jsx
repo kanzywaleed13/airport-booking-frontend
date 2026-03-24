@@ -9,6 +9,170 @@
  * Never trust frontend validation alone.
  */
 
+// ─── Airport / City Lookup ─────────────────────────────────────────────────
+
+/**
+ * Maps common city names (uppercase) to their primary IATA airport code.
+ * Add more entries as your route network grows.
+ */
+export const AIRPORT_LOOKUP = {
+  // Egypt
+  CAIRO: "CAI",
+  ALEXANDRIA: "HBE",
+  HURGHADA: "HRG",
+  "SHARM EL-SHEIKH": "SSH",
+  "SHARM EL SHEIKH": "SSH",
+  SHARM: "SSH",
+  LUXOR: "LXR",
+  ASWAN: "ASW",
+  MARSA: "RMF",
+  // Gulf / Middle East
+  DUBAI: "DXB",
+  "ABU DHABI": "AUH",
+  DOHA: "DOH",
+  RIYADH: "RUH",
+  JEDDAH: "JED",
+  MUSCAT: "MCT",
+  KUWAIT: "KWI",
+  BAHRAIN: "BAH",
+  AMMAN: "AMM",
+  BEIRUT: "BEY",
+  TEHRAN: "IKA",
+  ISTANBUL: "IST",
+  ANKARA: "ESB",
+  // Europe
+  LONDON: "LHR",
+  PARIS: "CDG",
+  AMSTERDAM: "AMS",
+  FRANKFURT: "FRA",
+  MADRID: "MAD",
+  ROME: "FCO",
+  BARCELONA: "BCN",
+  MUNICH: "MUC",
+  ZURICH: "ZRH",
+  BRUSSELS: "BRU",
+  VIENNA: "VIE",
+  MILAN: "MXP",
+  ATHENS: "ATH",
+  LISBON: "LIS",
+  OSLO: "OSL",
+  STOCKHOLM: "ARN",
+  COPENHAGEN: "CPH",
+  HELSINKI: "HEL",
+  WARSAW: "WAW",
+  PRAGUE: "PRG",
+  BUDAPEST: "BUD",
+  ZURICH: "ZRH",
+  NICE: "NCE",
+  // Africa
+  NAIROBI: "NBO",
+  JOHANNESBURG: "JNB",
+  "CAPE TOWN": "CPT",
+  CASABLANCA: "CMN",
+  TUNIS: "TUN",
+  TRIPOLI: "TIP",
+  ALGIERS: "ALG",
+  KHARTOUM: "KRT",
+  ADDIS: "ADD",
+  "ADDIS ABABA": "ADD",
+  LAGOS: "LOS",
+  ACCRA: "ACC",
+  DAKAR: "DSS",
+  // Asia
+  BEIJING: "PEK",
+  SHANGHAI: "PVG",
+  TOKYO: "NRT",
+  OSAKA: "KIX",
+  SINGAPORE: "SIN",
+  "HONG KONG": "HKG",
+  BANGKOK: "BKK",
+  "KUALA LUMPUR": "KUL",
+  DELHI: "DEL",
+  MUMBAI: "BOM",
+  CHENNAI: "MAA",
+  BANGALORE: "BLR",
+  KARACHI: "KHI",
+  DHAKA: "DAC",
+  COLOMBO: "CMB",
+  KATHMANDU: "KTM",
+  SEOUL: "ICN",
+  TAIPEI: "TPE",
+  MANILA: "MNL",
+  JAKARTA: "CGK",
+  HO: "SGN",
+  "HO CHI MINH": "SGN",
+  HANOI: "HAN",
+  // Americas
+  "NEW YORK": "JFK",
+  "LOS ANGELES": "LAX",
+  CHICAGO: "ORD",
+  MIAMI: "MIA",
+  DALLAS: "DFW",
+  "SAN FRANCISCO": "SFO",
+  HOUSTON: "IAH",
+  BOSTON: "BOS",
+  TORONTO: "YYZ",
+  MONTREAL: "YUL",
+  VANCOUVER: "YVR",
+  "SAO PAULO": "GRU",
+  "RIO DE JANEIRO": "GIG",
+  BOGOTA: "BOG",
+  LIMA: "LIM",
+  SANTIAGO: "SCL",
+  BUENOS: "EZE",
+  "BUENOS AIRES": "EZE",
+  MEXICO: "MEX",
+  "MEXICO CITY": "MEX",
+  // Oceania
+  SYDNEY: "SYD",
+  MELBOURNE: "MEL",
+  BRISBANE: "BNE",
+  AUCKLAND: "AKL",
+};
+
+/**
+ * Resolves a user input (city name or IATA code) to a 3-letter IATA code.
+ * Returns the resolved code string, or null if unrecognised.
+ *
+ * Examples:
+ *   resolveAirportCode("CAI")    → "CAI"
+ *   resolveAirportCode("cairo")  → "CAI"
+ *   resolveAirportCode("London") → "LHR"
+ *   resolveAirportCode("XYZ")    → "XYZ"  (unknown code — passes through)
+ *   resolveAirportCode("unkn")   → null
+ */
+export function resolveAirportCode(input) {
+  if (!input || input.trim() === "") return null;
+  const upper = input.trim().toUpperCase();
+
+  // Already a valid 3-letter IATA code — trust it (Firestore holds codes)
+  if (/^[A-Z]{3}$/.test(upper)) return upper;
+
+  // City name lookup
+  return AIRPORT_LOOKUP[upper] || null;
+}
+
+/**
+ * Validates an airport field that accepts either a city name or an IATA code.
+ * Returns { valid, message, resolved } — resolved is the IATA code if valid.
+ */
+export function validateAirportInput(value, fieldName = "Airport") {
+  if (!value || value.trim() === "") {
+    return { valid: false, message: `${fieldName} is required.`, resolved: null };
+  }
+
+  const resolved = resolveAirportCode(value);
+  if (!resolved) {
+    return {
+      valid: false,
+      message: `${fieldName}: enter a city (e.g. Cairo) or IATA code (e.g. CAI).`,
+      resolved: null,
+    };
+  }
+
+  return { valid: true, message: "", resolved };
+}
+
 // ─── Auth Fields ───────────────────────────────────────────────────────────
 
 export function validateEmail(value) {
@@ -190,4 +354,4 @@ export function runValidators(fieldMap) {
     }
   }
   return errors;
-} 
+}

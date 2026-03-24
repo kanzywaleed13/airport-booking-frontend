@@ -4,10 +4,10 @@ import { auth, db } from "../firebase";
 import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import {
-  validateAirportCode,
+  validateAirportInput,
+  resolveAirportCode,
   validateTravelDate,
   validatePassengerCount,
-  runValidators,
 } from "../utils/validators";
 
 const s = {
@@ -112,6 +112,16 @@ const s = {
   inputError: { borderColor: "#7f1d1d" },
   inputFocus: { borderColor: "#c8a96e" },
   errorMsg: { fontSize: "11px", color: "#f87171", marginTop: "2px" },
+  // Small resolved-code hint shown below the airport field
+  resolvedHint: {
+    fontSize: "10px",
+    color: "#4ade80",
+    marginTop: "3px",
+    letterSpacing: "1px",
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+  },
   swapBtn: {
     background: "#0d1525",
     border: "0.5px solid #1f2a3c",
@@ -248,12 +258,25 @@ export default function SearchFlights() {
   const [results, setResults] = useState(null);
   const [searched, setSearched] = useState(false);
 
+  // Tracks the resolved IATA codes (shown as hints below the input)
+  const [resolvedFrom, setResolvedFrom] = useState(null);
+  const [resolvedTo, setResolvedTo] = useState(null);
+
+  // ─── Input handling ──────────────────────────────────────────────────────
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     let sanitized = value;
 
     if (name === "from" || name === "to") {
-      sanitized = value.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 3);
+      // Allow letters and spaces (city names like "New York") up to 30 chars.
+      // Strip anything that isn't a letter or space.
+      sanitized = value.replace(/[^a-zA-Z\s]/g, "").slice(0, 30);
+
+      // Live-resolve so the green hint updates as the user types
+      const resolved = resolveAirportCode(sanitized);
+      if (name === "from") setResolvedFrom(resolved);
+      if (name === "to") setResolvedTo(resolved);
     }
 
     if (name === "passengers") {
@@ -265,26 +288,37 @@ export default function SearchFlights() {
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
     }
-
     setServerError("");
   };
 
   const handleSwap = () => {
-    setForm((prev) => ({
-      ...prev,
-      from: prev.to,
-      to: prev.from,
-    }));
+    setForm((prev) => ({ ...prev, from: prev.to, to: prev.from }));
+    setResolvedFrom(resolvedTo);
+    setResolvedTo(resolvedFrom);
     setErrors((prev) => ({ ...prev, from: "", to: "" }));
   };
 
-  const validateForm = () =>
-    runValidators({
-      from: [form.from, (v) => validateAirportCode(v, "Departure airport")],
-      to: [form.to, (v) => validateAirportCode(v, "Destination airport")],
-      date: [form.date, validateTravelDate],
-      passengers: [form.passengers, validatePassengerCount],
-    });
+  // ─── Validation ──────────────────────────────────────────────────────────
+
+  const validateForm = () => {
+    const errs = {};
+
+    const fromResult = validateAirportInput(form.from, "Departure airport");
+    if (!fromResult.valid) errs.from = fromResult.message;
+
+    const toResult = validateAirportInput(form.to, "Destination airport");
+    if (!toResult.valid) errs.to = toResult.message;
+
+    const dateResult = validateTravelDate(form.date);
+    if (!dateResult.valid) errs.date = dateResult.message;
+
+    const paxResult = validatePassengerCount(form.passengers);
+    if (!paxResult.valid) errs.passengers = paxResult.message;
+
+    return errs;
+  };
+
+  // ─── Search ──────────────────────────────────────────────────────────────
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -295,7 +329,11 @@ export default function SearchFlights() {
       return;
     }
 
-    if (form.from === form.to) {
+    // Resolve inputs to IATA codes for the Firestore query
+    const fromCode = resolveAirportCode(form.from);
+    const toCode = resolveAirportCode(form.to);
+
+    if (fromCode === toCode) {
       setErrors({ to: "Destination must differ from departure." });
       return;
     }
@@ -308,8 +346,8 @@ export default function SearchFlights() {
       const flightsRef = collection(db, "flights");
       const q = query(
         flightsRef,
-        where("from", "==", form.from),
-        where("to", "==", form.to)
+        where("from", "==", fromCode),
+        where("to", "==", toCode)
       );
 
       const querySnapshot = await getDocs(q);
@@ -318,7 +356,13 @@ export default function SearchFlights() {
         ...doc.data(),
       }));
 
-      setResults(flightData);
+      // Client-side date filter (flights collection stores per-route, not per date)
+      // If your Firestore documents include a `date` field, filter here:
+      const filtered = form.date
+        ? flightData.filter((f) => !f.date || f.date === form.date)
+        : flightData;
+
+      setResults(filtered);
     } catch (err) {
       console.error("Firebase Error:", err);
       setServerError("Could not fetch flights. Please check your connection.");
@@ -326,6 +370,8 @@ export default function SearchFlights() {
       setLoading(false);
     }
   };
+
+  // ─── Book ────────────────────────────────────────────────────────────────
 
   const handleBook = (flight) => {
     sessionStorage.setItem(
@@ -345,6 +391,8 @@ export default function SearchFlights() {
     navigate("/booking");
   };
 
+  // ─── Logout ───────────────────────────────────────────────────────────────
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -354,6 +402,8 @@ export default function SearchFlights() {
       console.error("Logout Error:", error);
     }
   };
+
+  // ─── Styles helpers ───────────────────────────────────────────────────────
 
   const getInputStyle = (field) => ({
     ...s.input,
@@ -365,6 +415,14 @@ export default function SearchFlights() {
   const maxDate = new Date();
   maxDate.setFullYear(maxDate.getFullYear() + 1);
   const maxDateStr = maxDate.toISOString().split("T")[0];
+
+  // Display label for the results header (city name if typed, else code)
+  const fromLabel = resolvedFrom
+    ? `${form.from.trim()} (${resolvedFrom})`
+    : form.from.toUpperCase();
+  const toLabel = resolvedTo
+    ? `${form.to.trim()} (${resolvedTo})`
+    : form.to.toUpperCase();
 
   return (
     <div style={s.page}>
@@ -415,6 +473,8 @@ export default function SearchFlights() {
         <div style={s.searchCard}>
           <form onSubmit={handleSearch} noValidate>
             <div style={s.searchGrid}>
+
+              {/* FROM */}
               <div style={s.fieldWrap}>
                 <label style={s.label}>From</label>
                 <input
@@ -424,20 +484,24 @@ export default function SearchFlights() {
                   onFocus={() => setFocused("from")}
                   onBlur={() => setFocused(null)}
                   style={getInputStyle("from")}
-                  placeholder="CAI"
-                  maxLength={3}
+                  placeholder="Cairo or CAI"
+                  maxLength={30}
                   autoComplete="off"
                 />
+                {/* Live hint: show resolved IATA code in green */}
+                {resolvedFrom && !errors.from && (
+                  <p style={s.resolvedHint}>
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                      <circle cx="4" cy="4" r="3" fill="#4ade80" />
+                    </svg>
+                    {resolvedFrom}
+                  </p>
+                )}
                 {errors.from && <p style={s.errorMsg}>{errors.from}</p>}
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "flex-end",
-                }}
-              >
+              {/* SWAP */}
+              <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
                 <button type="button" style={s.swapBtn} onClick={handleSwap}>
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
                     <path
@@ -451,6 +515,7 @@ export default function SearchFlights() {
                 </button>
               </div>
 
+              {/* TO */}
               <div style={s.fieldWrap}>
                 <label style={s.label}>To</label>
                 <input
@@ -460,13 +525,22 @@ export default function SearchFlights() {
                   onFocus={() => setFocused("to")}
                   onBlur={() => setFocused(null)}
                   style={getInputStyle("to")}
-                  placeholder="LHR"
-                  maxLength={3}
+                  placeholder="London or LHR"
+                  maxLength={30}
                   autoComplete="off"
                 />
+                {resolvedTo && !errors.to && (
+                  <p style={s.resolvedHint}>
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                      <circle cx="4" cy="4" r="3" fill="#4ade80" />
+                    </svg>
+                    {resolvedTo}
+                  </p>
+                )}
                 {errors.to && <p style={s.errorMsg}>{errors.to}</p>}
               </div>
 
+              {/* DATE */}
               <div style={s.fieldWrap}>
                 <label style={s.label}>Date</label>
                 <input
@@ -483,6 +557,7 @@ export default function SearchFlights() {
                 {errors.date && <p style={s.errorMsg}>{errors.date}</p>}
               </div>
 
+              {/* PASSENGERS */}
               <div style={s.fieldWrap}>
                 <label style={s.label}>Passengers</label>
                 <input
@@ -502,13 +577,8 @@ export default function SearchFlights() {
                 )}
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "flex-end",
-                }}
-              >
+              {/* SEARCH BUTTON */}
+              <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
                 <button type="submit" style={s.searchBtn} disabled={loading}>
                   {loading ? "Searching..." : "Search"}
                 </button>
@@ -534,7 +604,7 @@ export default function SearchFlights() {
                 {results.length} flight{results.length !== 1 ? "s" : ""} found
               </span>
               <span style={s.resultsMeta}>
-                {form.from} → {form.to} · {form.date} · {form.passengers} pax
+                {fromLabel} → {toLabel} · {form.date} · {form.passengers} pax
               </span>
             </div>
 
@@ -595,7 +665,7 @@ export default function SearchFlights() {
 
         {!loading && !searched && (
           <div style={s.emptyState}>
-            Enter your route above to search for available flights.
+            Enter a city name (e.g. Cairo) or IATA code (e.g. CAI) to search for flights.
           </div>
         )}
       </div>

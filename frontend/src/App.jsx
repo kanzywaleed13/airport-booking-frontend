@@ -10,6 +10,7 @@ import BookingForm from "./pages/BookingForm";
 import MyBookings from "./pages/MyBookings";
 import MFAVerify from "./pages/MFAVerify";
 import ProtectedRoute from "./components/ProtectedRoute";
+import SeedFlights from "./pages/SeedFlights";
 
 function PublicRoute({ children }) {
   const [authState, setAuthState] = useState("loading");
@@ -40,7 +41,7 @@ export default function App() {
             </PublicRoute>
           }
         />
-
+        <Route path="/seed" element={<SeedFlights />} />
         <Route
           path="/register"
           element={
